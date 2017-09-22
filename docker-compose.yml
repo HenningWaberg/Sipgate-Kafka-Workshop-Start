@@ -1,0 +1,117 @@
+version: '2'
+services:
+
+  cp-zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    restart: always
+    user: "12345"
+    networks:
+      - kafka-net
+    environment:
+      - ZOOKEEPER_TICK_TIME=2000
+      - ZOOKEEPER_CLIENT_PORT=2181
+    ports:
+      - "2181:2181"
+
+  cp-kafka:
+    image: confluentinc/cp-kafka:latest
+    restart: always
+    user: "12345"
+    networks:
+      - kafka-net
+    environment:
+      - KAFKA_BROKER_ID=1
+      - KAFKA_ZOOKEEPER_CONNECT=cp-zookeeper:2181
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://cp-kafka:9092
+      - KAFKA_ADVERTISED_LISTENERS=CLIENT://localhost:9092,REPLICATION://cp-kafka:9093,INTERNAL_PLAINTEXT://cp-kafka:9094,PLAINTEXT://cp-kafka:9095
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CLIENT:PLAINTEXT,REPLICATION:PLAINTEXT,INTERNAL_PLAINTEXT:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      - KAFKA_INTER_BROKER_LISTENER_NAME=REPLICATION
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+    #volumes:
+    #  - /var/lib/kafka/data
+    ports:
+      - "9092:9092"
+
+  cp-rest-proxy:
+    image: confluentinc/cp-kafka-rest:latest
+    restart: always
+    user: "12345"
+    networks:
+      - kafka-net
+    environment:
+      - KAFKA_REST_ZOOKEEPER_CONNECT=cp-zookeeper:2181
+      - KAFKA_REST_LISTENERS=http://0.0.0.0:8082
+      - KAFKA_REST_HOST_NAME=cp-rest-proxy
+      - KAFKA_REST_SCHEMA_REGISTRY_URL=http://cp-schema-registry:8081
+      - KAFKA_REST_BOOTSTRAP_SERVERS=PLAINTEXT://cp-kafka:9095
+    ports:
+      - "8082:8082"
+
+  kafka-topics-ui:
+    image: landoop/kafka-topics-ui
+    restart: always
+    networks:
+      - kafka-net
+    environment:
+      - KAFKA_REST_PROXY_URL=http://localhost/api
+      - SCHEMAREGISTRY_UI_URL=http://localhost/schema-registry-ui
+
+  schema-registry-ui:
+    image: landoop/schema-registry-ui
+    restart: always
+    networks:
+      - kafka-net
+    environment:
+      - SCHEMAREGISTRY_URL=http://localhost/schema-registry
+
+  cp-schema-registry:
+    image: confluentinc/cp-schema-registry:latest
+    restart: always
+    user: "12345"
+    networks:
+      - kafka-net
+    environment:
+      - SCHEMA_REGISTRY_KAFKASTORE_CONNECTION_URL=cp-zookeeper:2181
+      - SCHEMA_REGISTRY_HOST_NAME=cp-schema-registry
+    ports:
+      - "8081:8081"
+
+  reverse-proxy:
+    image: nginx:alpine
+    restart: always
+    networks:
+      - kafka-net
+    depends_on:
+      - cp-rest-proxy
+      - cp-schema-registry
+      - kafka-topics-ui
+      - schema-registry-ui
+    ports:
+      - "80:80"
+    volumes:
+      - ./config/nginx.conf:/etc/nginx/nginx.conf:ro
+
+  customer-db:
+    image: mysql:latest
+    restart: always
+    networks:
+      - kafka-net
+    environment:
+      - MYSQL_ROOT_PASSWORD=sipgate
+    volumes:
+      - ./data/customers.sql:/docker-entrypoint-initdb.d/customers.sql
+    ports:
+      - "3306:3306"
+
+  adminer:
+    image: adminer:latest
+    restart: always
+    networks:
+      - kafka-net
+    ports:
+      - "8080:8080"
+
+
+# Networks
+networks:
+  kafka-net:
